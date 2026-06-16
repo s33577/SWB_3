@@ -48,6 +48,7 @@ TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
 
 /* USER CODE BEGIN PV */
+volatile uint8_t sonar_data_ready = 0; // Flag for main loop
 
 /* USER CODE END PV */
 
@@ -102,6 +103,13 @@ int main(void)
   MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
 
+  HAL_GPIO_WritePin(TFT_CS_GPIO_Port, TFT_CS_Pin, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(TOUCH_CS_GPIO_Port, TOUCH_CS_Pin, GPIO_PIN_SET);
+  ILI9341_Init(&hspi1);
+  XPT2046_Init(&hspi1);
+  Sonar_Init(&htim3, TIM_CHANNEL_1);
+  Stepper_Init();
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -109,6 +117,53 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
+	  uint32_t now = HAL_GetTick();
+
+	  // 1. GUI & Touch (High Priority)
+	  XPT2046_Task();
+	  GUI_Task();
+
+	  // 2. Non-blocking Sweep
+	  static uint32_t last_trigger = 0;
+	  static uint16_t angle = 0;
+
+	  if (now - last_trigger > 60) {
+		  last_trigger = now;
+
+		  Servo_SetPosition(angle);
+
+		  // Directly trigger the pulse using your existing Sonar_TriggerPulse logic
+		  // If Sonar_TriggerPulse is static in sonar.c, you can recreate it here:
+		  HAL_GPIO_WritePin(SONAR_TRIG_GPIO_Port, SONAR_TRIG_Pin, GPIO_PIN_RESET);
+		  // Add a microsecond delay here (or use DWT_Delay_us if available)
+		  HAL_GPIO_WritePin(SONAR_TRIG_GPIO_Port, SONAR_TRIG_Pin, GPIO_PIN_SET);
+		  // ... delay 10us ...
+		  HAL_GPIO_WritePin(SONAR_TRIG_GPIO_Port, SONAR_TRIG_Pin, GPIO_PIN_RESET);
+
+		  angle = (angle + 10) % 340;
+	  }
+
+	  if (Sonar_IsReady()) {
+		  float distance = Sonar_GetDist();
+		  Sonar_ResetFlag();
+
+
+		  // Map distance cm to bar height
+		  // 240 pxiels = tft height
+		  uint16_t bar_height = (uint16_t)((distance / 100.0f) * 240);
+		  if (bar_height > 240) {
+			  bar_height = 240;
+		  }
+
+		  uint16_t x_pos = (servo_angle * 320) / 340;
+		  // select tft before drawing
+		  HAL_GPIO_WritePin(TFT_CS_GPIO_Port, TFT_CS_Pin, GPIO_PIN_RESET);
+		  ILI9341_FillRect(x_pos, 240 - bar_height, 5, bar_height, ILI9341_GREEN);
+		  HAL_GPIO_WritePin(TFT_CS_GPIO_Port, TFT_CS_Pin, GPIO_PIN_SET);
+
+
+	  }
+
 
     /* USER CODE BEGIN 3 */
   }
@@ -223,7 +278,7 @@ static void MX_TIM2_Init(void)
   htim2.Instance = TIM2;
   htim2.Init.Prescaler = 169;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 4294967295;
+  htim2.Init.Period = 19999;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
@@ -347,14 +402,14 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, TFT_CS_Pin|Touch_CS_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, TFT_CS_Pin|Touch_CS_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, TFT_DC_Pin|STEP_IN1_Pin|STEP_IN2_Pin|STEP_IN3_Pin
                           |STEP_IN4_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOC, TFT_RST_Pin|SONAR_TRIG_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(TFT_RST_GPIO_Port, TFT_RST_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pins : TFT_CS_Pin Touch_CS_Pin */
   GPIO_InitStruct.Pin = TFT_CS_Pin|Touch_CS_Pin;
@@ -403,6 +458,19 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
+    if (GPIO_Pin == TOUCH_IRQ_Pin) {
+        XPT2046_EXTI_Callback(GPIO_Pin);
+    }
+}
+
+void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim) {
+    Sonar_IC_CaptureCallback(htim);
+}
+
+
+
 
 /* USER CODE END 4 */
 
