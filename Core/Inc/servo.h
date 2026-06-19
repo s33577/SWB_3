@@ -11,9 +11,9 @@
 #include "stm32g4xx_hal.h"
 #include <stdint.h>
 
-#define SERVO_MIN_PULSE_US   1000U
-#define SERVO_MAX_PULSE_US   2000U
-#define SERVO_MAX_POSITION   340U
+#define SERVO_MIN_PULSE_US   500U
+#define SERVO_MAX_PULSE_US   2500U
+#define SERVO_MAX_POSITION   180U
 
 HAL_StatusTypeDef Servo_Init(TIM_HandleTypeDef *htim, uint32_t channel);
 

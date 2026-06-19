@@ -1,8 +1,8 @@
 /*
  * xpt2046.c
  *
- *  Created on: 7 maj 2026
- *      Author: macmac
+ * Created on: 7 maj 2026
+ * Author: macmac
  */
 
 #include "xpt2046.h"
@@ -72,11 +72,11 @@ static void XPT2046_Select(void) {
     HAL_GPIO_WritePin(SD_CS_GPIO_Port, SD_CS_Pin, GPIO_PIN_SET);
 #endif
 
-	HAL_GPIO_WritePin(TOUCH_CS_GPIO_Port, TOUCH_CS_Pin, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(Touch_CS_GPIO_Port, Touch_CS_Pin, GPIO_PIN_RESET);
 }
 
 static void XPT2046_Unselect(void) {
-	HAL_GPIO_WritePin(TOUCH_CS_GPIO_Port, TOUCH_CS_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(Touch_CS_GPIO_Port, Touch_CS_Pin, GPIO_PIN_SET);
 }
 
 static uint8_t XPT2046_IsPressed(void) {
@@ -200,7 +200,7 @@ void XPT2046_Init(SPI_HandleTypeDef *hspi) {
 	g_touch_x = 0;
 	g_touch_y = 0;
 
-	HAL_GPIO_WritePin(TOUCH_CS_GPIO_Port, TOUCH_CS_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(Touch_CS_GPIO_Port, Touch_CS_Pin, GPIO_PIN_SET);
 }
 
 void XPT2046_EXTI_Callback(uint16_t GPIO_Pin) {
@@ -254,14 +254,4 @@ void XPT2046_Task(void) {
 
 	g_touch_pressed = 1;
 
-	Servo_SetPosition(g_touch_x);
-	if (g_touch_y > 120) {
-		Stepper_Move(1, g_touch_y);
-	}else{
-		Stepper_Move(-1, g_touch_y);
-	}
-
-
-//	ILI9341_FillRect(ILI9341_TFTWIDTH - g_touch_x, g_touch_y, 7, 7,
-//			ILI9341_WHITE);
 }

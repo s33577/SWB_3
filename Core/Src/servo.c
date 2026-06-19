@@ -27,18 +27,18 @@ HAL_StatusTypeDef Servo_Init(TIM_HandleTypeDef *htim, uint32_t channel) {
 	return status;
 }
 
-HAL_StatusTypeDef Servo_SetPosition(uint16_t position_0_340) {
+HAL_StatusTypeDef Servo_SetPosition(uint16_t position_deg) {
 	if (servo_htim == NULL) {
 		return HAL_ERROR;
 	}
 
-	if (position_0_340 > SERVO_MAX_POSITION) {
-		position_0_340 = SERVO_MAX_POSITION;
+	if (position_deg > SERVO_MAX_POSITION) {
+		position_deg = SERVO_MAX_POSITION;
 	}
 
 	uint32_t pulse_us =
 	SERVO_MIN_PULSE_US
-			+ ((uint32_t) position_0_340
+			+ ((uint32_t) position_deg
 					* (SERVO_MAX_PULSE_US - SERVO_MIN_PULSE_US))
 					/ SERVO_MAX_POSITION;
 

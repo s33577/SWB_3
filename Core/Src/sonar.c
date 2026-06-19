@@ -15,6 +15,8 @@ static volatile uint32_t sonar_rise_us = 0;
 static volatile uint32_t sonar_width_us = 0;
 static volatile uint8_t sonar_done = 0;
 static volatile uint8_t sonar_waiting = 0;
+static uint32_t sonar_start_tick = 0;
+static uint32_t sonar_timeout_ms = 0;
 
 static void Sonar_DWT_Init(void) {
 	CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
@@ -124,19 +126,49 @@ uint8_t Sonar_IsReady(void) {
     return sonar_done;
 }
 
+uint8_t Sonar_IsBusy(void) {
+    return sonar_waiting;
+}
+
+uint8_t Sonar_HasTimedOut(void) {
+    if (sonar_waiting == 0U || sonar_done != 0U) {
+        return 0;
+    }
+
+    if ((HAL_GetTick() - sonar_start_tick) >= sonar_timeout_ms) {
+        sonar_waiting = 0;
+        return 1;
+    }
+
+    return 0;
+}
+
 float Sonar_GetDist(void) {
     return (float)sonar_width_us / 58.0f;
 }
 
-void Sonar_StartReading(void) {
+HAL_StatusTypeDef Sonar_StartReading(uint32_t timeout_ms) {
+    if (sonar_htim == NULL) {
+        return HAL_ERROR;
+    }
+
+    if (sonar_waiting != 0U) {
+        return HAL_BUSY;
+    }
+
     sonar_done = 0;
     sonar_waiting = 1;
     sonar_width_us = 0;
     sonar_rise_us = 0;
+    sonar_timeout_ms = timeout_ms;
+    sonar_start_tick = HAL_GetTick();
     __HAL_TIM_SET_COUNTER(sonar_htim, 0);
     Sonar_TriggerPulse();
+
+    return HAL_OK;
 }
 
 void Sonar_ResetFlag(void) {
     sonar_done = 0;
+    sonar_waiting = 0;
 }
