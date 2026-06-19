@@ -21,7 +21,12 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "ili9341.h"
+#include "xpt2046.h"
+#include "gui_screens.h"
+#include "sonar.h"
+#include "servo.h"
+#include "stepper.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -49,7 +54,9 @@ TIM_HandleTypeDef htim3;
 
 /* USER CODE BEGIN PV */
 volatile uint8_t sonar_data_ready = 0; // Flag for main loop
-
+static float filtered_dist = 0.0f;     // For Exponential Moving Average
+static float min_dist = 999.0f;        // To track the closest obstacle
+static uint16_t min_angle = 0;         // Angle of the closest obstacle
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -105,10 +112,14 @@ int main(void)
 
   HAL_GPIO_WritePin(TFT_CS_GPIO_Port, TFT_CS_Pin, GPIO_PIN_SET);
   HAL_GPIO_WritePin(TOUCH_CS_GPIO_Port, TOUCH_CS_Pin, GPIO_PIN_SET);
+
   ILI9341_Init(&hspi1);
   XPT2046_Init(&hspi1);
   Sonar_Init(&htim3, TIM_CHANNEL_1);
+  Servo_Init(&htim2, TIM_CHANNEL_3);
   Stepper_Init();
+
+  GUI_Init();
 
   /* USER CODE END 2 */
 
@@ -117,53 +128,61 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
-	  uint32_t now = HAL_GetTick();
+    uint32_t now = HAL_GetTick();
 
-	  // 1. GUI & Touch (High Priority)
-	  XPT2046_Task();
-	  GUI_Task();
+    // 1. GUI & Touch (High Priority)
+    XPT2046_Task();
+    GUI_Task();
 
-	  // 2. Non-blocking Sweep
-	  static uint32_t last_trigger = 0;
-	  static uint16_t angle = 0;
+    //  Non-blocking Sweep
+    static uint32_t last_trigger = 0;
+    static uint16_t angle = 0;
 
-	  if (now - last_trigger > 60) {
-		  last_trigger = now;
+    if (now - last_trigger > 60) {
+        last_trigger = now;
 
-		  Servo_SetPosition(angle);
+        Servo_SetPosition(angle);
 
-		  // Directly trigger the pulse using your existing Sonar_TriggerPulse logic
-		  // If Sonar_TriggerPulse is static in sonar.c, you can recreate it here:
-		  HAL_GPIO_WritePin(SONAR_TRIG_GPIO_Port, SONAR_TRIG_Pin, GPIO_PIN_RESET);
-		  // Add a microsecond delay here (or use DWT_Delay_us if available)
-		  HAL_GPIO_WritePin(SONAR_TRIG_GPIO_Port, SONAR_TRIG_Pin, GPIO_PIN_SET);
-		  // ... delay 10us ...
-		  HAL_GPIO_WritePin(SONAR_TRIG_GPIO_Port, SONAR_TRIG_Pin, GPIO_PIN_RESET);
-
-		  angle = (angle + 10) % 340;
-	  }
-
-	  if (Sonar_IsReady()) {
-		  float distance = Sonar_GetDist();
-		  Sonar_ResetFlag();
+        // Call the proper non-blocking trigger
+        Sonar_StartReading();
 
 
-		  // Map distance cm to bar height
-		  // 240 pxiels = tft height
-		  uint16_t bar_height = (uint16_t)((distance / 100.0f) * 240);
-		  if (bar_height > 240) {
-			  bar_height = 240;
-		  }
-
-		  uint16_t x_pos = (servo_angle * 320) / 340;
-		  // select tft before drawing
-		  HAL_GPIO_WritePin(TFT_CS_GPIO_Port, TFT_CS_Pin, GPIO_PIN_RESET);
-		  ILI9341_FillRect(x_pos, 240 - bar_height, 5, bar_height, ILI9341_GREEN);
-		  HAL_GPIO_WritePin(TFT_CS_GPIO_Port, TFT_CS_Pin, GPIO_PIN_SET);
+        angle = (angle + 10) % 350;
 
 
-	  }
+        if (angle == 0) {
+            Stepper_Move(1, min_angle); // Point mechanical pointer
+            min_dist = 999.0f;          // Reset for new sweep
+        }
+    }
 
+    // 3. Process Sonar Data
+    if (Sonar_IsReady()) {
+        float distance = Sonar_GetDist();
+        Sonar_ResetFlag();
+
+        // Exponential Moving Average Filter
+        filtered_dist = (0.7f * filtered_dist) + (0.3f * distance);
+
+        // Track Minimum Distance
+        if (filtered_dist < min_dist) {
+            min_dist = filtered_dist;
+            min_angle = angle;
+        }
+
+        // Map distance cm to bar height (240 pixels = tft height)
+        uint16_t bar_height = (uint16_t)((filtered_dist / 100.0f) * 240);
+        if (bar_height > 240) {
+            bar_height = 240;
+        }
+
+        uint16_t x_pos = (angle * 320) / 340;
+
+        // Select TFT before drawing
+        HAL_GPIO_WritePin(TFT_CS_GPIO_Port, TFT_CS_Pin, GPIO_PIN_RESET);
+        ILI9341_FillRect(x_pos, 240 - bar_height, 5, bar_height, ILI9341_GREEN);
+        HAL_GPIO_WritePin(TFT_CS_GPIO_Port, TFT_CS_Pin, GPIO_PIN_SET);
+    }
 
     /* USER CODE BEGIN 3 */
   }
@@ -469,9 +488,6 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim) {
     Sonar_IC_CaptureCallback(htim);
 }
 
-
-
-
 /* USER CODE END 4 */
 
 /**
@@ -491,7 +507,7 @@ void Error_Handler(void)
 #ifdef USE_FULL_ASSERT
 /**
   * @brief  Reports the name of the source file and the source line number
-  *         where the assert_param error has occurred.
+  * where the assert_param error has occurred.
   * @param  file: pointer to the source file name
   * @param  line: assert_param error line source number
   * @retval None
